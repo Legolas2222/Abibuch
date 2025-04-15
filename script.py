@@ -2,37 +2,62 @@ import pandas as pd
 from pptx import Presentation
 
 # Load Excel data
-df = pd.read_excel('antworten.xlsx', sheet_name='data')
+df = pd.read_excel("antworten.xlsx", sheet_name="data")
 
-# Load PowerPoint template
-prs = Presentation('buchtemplate_single.pptx')
-template_slide = prs.slides[0]  # Assuming the first slide is the template
+# Load the template
+prs = Presentation("buchtemplate_single.pptx")
+template_slide = prs.slides[0]
 
-def duplicate_and_fill_slide(data):
-    # Duplicate template slide
-    slide = prs.slides.add_slide(template_slide.slide_layout)
-    
-    # Copy shapes from the template
-    for shape in template_slide.shapes:
+def replace_placeholders_in_shape(shape, data_row):
+    if not shape.has_text_frame:
+        return
+
+    for paragraph in shape.text_frame.paragraphs:
+        # Join all runs' text
+        full_text = ''.join(run.text for run in paragraph.runs)
+
+        # Replace placeholders like {Name}, {Age}, etc.
+        for key, value in data_row.items():
+            print(f"Replacing {key} with {value}")
+            placeholder = f"{{{key}}}"
+            full_text = full_text.replace(placeholder, str(value))
+
+        # Save style from first run
+        if paragraph.runs:
+            style_run = paragraph.runs[0]
+            font = style_run.font
+        else:
+            font = None
+
+        # Clear paragraph
+        p = paragraph._element
+        for r in list(p):
+            p.remove(r)
+
+        # Add one new run with updated text and preserved formatting
+        new_run = paragraph.add_run()
+        new_run.text = full_text
+
+        # Apply style from original run
+        if font:
+            new_run.font.name = font.name
+            new_run.font.size = font.size or Pt(18)  # Default size if none
+            new_run.font.bold = font.bold
+            new_run.font.italic = font.italic
+            new_run.font.color.rgb = font.color.rgb if font.color and font.color.rgb else None
+
+def create_slide_with_data(data_row):
+    new_slide = prs.slides.add_slide(template_slide.slide_layout)
+    for i, shape in enumerate(template_slide.shapes):
         if shape.has_text_frame:
-            new_shape = slide.shapes.add_textbox(shape.left, shape.top, shape.width, shape.height)
-            new_shape.text_frame.text = shape.text_frame.text
+            new_shape = new_slide.shapes[i]
+            replace_placeholders_in_shape(new_shape, data_row)
 
-    # Replace placeholders
-    for shape in slide.shapes:
-        if shape.has_text_frame:
-            text = shape.text_frame.text
-            for key, value in data.items():
-                placeholder = f"{{{key}}}"
-                text = text.replace(placeholder, str(value))
-            shape.text_frame.text = text
+# Generate one slide per row
+for _, row in df.iterrows():
+    create_slide_with_data(row)
 
-# For each row in Excel, create a new slide
-for index, row in df.iterrows():
-    duplicate_and_fill_slide(row)
 
-# Remove the original template slide (optional)
-# del prs.slides[0]  # Remove the first slide if it was a template
-# Save the final presentation
-prs.save('filled_presentation.pptx')
-print("Presentation generated!")
+# Save result
+prs.save("formatted_presentation.pptx")
+print("Presentation saved successfully with formatting preserved!")
